@@ -1,0 +1,45 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: latest
+    commands:
+      - rm /var/run/docker.pid || true
+      - sudo chmod 666 /var/run/docker.sock
+      - ps -ef | grep docker
+      - sudo service docker start || sudo dockerd
+      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws --version
+      - echo $AWS_DEFAULT_REGION
+      - export AWS_ACCOUNT_ID=229125962286
+      - export AWS_REGION=ap-south-1
+      - export AWS_ECR_LOGIN=$(aws ecr get-login-password --region $AWS_REGION)
+      - export REPOSITORY_URI=public.ecr.aws/l0k7x9w8/graphspace_registry
+      - export COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - export IMAGE_TAG=${COMMIT_HASH:=latest}
+
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image.
+      - sudo docker build -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+      - echo '{"name":"exp-code-pipeline","imageUri":"'$REPOSITORY_URI:$IMAGE_TAG'"}' > imagestructure.json
+
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - sudo docker push $REPOSITORY_URI:latest
+      - sudo docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Uploading artifacts to S3...
+      - aws s3 cp imagestructure.json s3://graphspace-image-artifacts/
+
+artifacts:
+  files:
+    - imagestructure.json
