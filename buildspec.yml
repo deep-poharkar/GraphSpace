@@ -5,12 +5,17 @@ phases:
     runtime-versions:
       python: latest
     commands:
-      - rm /var/run/docker.pid || true
       - sudo chmod 666 /var/run/docker.sock
       - ps -ef | grep docker
-      - sudo service docker start || sudo dockerd
-      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
-      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+      - |
+        if ! pgrep -x "dockerd" > /dev/null
+        then
+          echo "Docker is not running. Starting Docker..."
+          nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
+          timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+        else
+          echo "Docker is already running."
+        fi
 
   pre_build:
     commands:
